@@ -151,3 +151,102 @@ len(ovo_clf.estimators_)
 forest_clf.fit(X_train,y_train)
 forest_clf.predict([some_digit])        #Predict the class directly
 forest_clf.predict_proba([some_digit])  #Get the probability for each class
+cross_val_score(sgd_clf,X_train,y_train,cv=3,scoring='accuracy')   #Evaluation of Multiclass using cross-validation score
+
+#Scaling the data helps to improve the accuracy
+from sklearn.preprocessing import StandardScaler
+scaler=StandardScaler()
+X_train_scaled=scaler.fit_transform(X_train.astype(np.float64))           #numpy.float64 requests using the double precision float type
+cross_val_score(sgd_clf,X_train_scaled,y_train,cv=3,scoring='accuracy')   #Evaluation of Multiclass using cross-validation score
+
+#ERROR ANALYSIS
+#Confusin matrix for multiclassification
+y_train_pred=cross_val_predict(sgd_clf,X_train_scaled,y_train,cv=3)
+conf_mx=confusion_matrix(y_train,y_train_pred)
+conf_mx
+plt.matshow(conf_mx,cmap=plt.cm.gray)
+plt.show()
+
+row_sums=conf_mx.sum(axis=1,keepdims=True)    #Sums each row of the confusion matrix, gets a array (10,1)
+norm_conf_mx=conf_mx/row_sums                 #Divides each cell by the corresponding total along the row
+np.fill_diagonal(norm_conf_mx,0)              #Fills the diagonal with 0
+plt.matshow(norm_conf_mx,cmap=plt.cm.gray)
+plt.show()
+
+
+#Multilabel classification system
+#Classification system that outputs multiple binary labels
+from sklearn.neighbors import KNeighborsClassifier   #Supports multilabel classification
+y_train_large=(y_train>=7)                            #True for 7,8,9
+y_train_odd=(y_train%2==1)                            #True for odd numbers
+y_multilabel=np.c_[y_train_large,y_train_odd]         #Assign the 2 conditions as attribute for y_multilabel
+
+knn_clf=KNeighborsClassifier()
+knn_clf.fit(X_train,y_multilabel)                     #Trains the classfier
+knn_clf.predict([some_digit])                         #Predicts for the [36,000] instance   
+
+#Evaluation of multilabel classification system
+y_train_knn_pred=cross_val_predict(knn_clf,X_train,y_multilabel,cv=3)
+f1_score(y_multilabel,y_train_knn_pred,average='macro')
+
+
+#EXERCISE 01
+knn_clf.fit(X_train,y_train)
+y_train_digit_predict=knn_clf.predict(X_train)
+from sklearn.metrics import accuracy_score
+accuracy_score(y_train, y_train_digit_predict)
+
+from sklearn.model_selection import GridSearchCV                          #Finds the best combination of hyperparameters using cross-vaidation
+#In this exercise KNeighborsClassifier is Used
+param_grid=[{'weights':['uniform','distance'],'n_neighbors':[3,5,10]}]    #Run KNeighbors for each combination of weight and n_neighbor
+           
+grid_search=GridSearchCV(knn_clf,param_grid,cv=3,                         #Creates the function to find the best model for KNeighbors using 3 folds
+                        scoring='accuracy',n_jobs=-1)                     #n_jobs=-1: the number of jobs is set to the number of CPU cores
+
+grid_search.fit(X_train,y_train)                                          #Runs GridSearch
+y_pred = grid_search.predict(X_test)
+accuracy_score(y_test, y_pred)
+
+
+#Exercise 02
+from scipy.ndimage.interpolation import shift                       #Function to move the array
+def shift_image(image, dx, dy):                                     #image is a vector shape with the information of the pixels
+    image = image.reshape((28, 28))                                 #Reshape the vector to array (28x28)
+    shifted_image = shift(image, [dy, dx], cval=0, mode="constant") #function execution. Points outside the array are filled with the "constant=0"
+    return shifted_image.reshape([-1])                              #Reshape in a row with unknown size
+
+image = X_train[1000]                                               #Image in location 10,000
+shifted_image_down = shift_image(image, 0, 5)                       #Image shifted down 5 pixels
+shifted_image_left = shift_image(image, -5, 0)                      #Image shifted left 5 pixels
+
+plt.figure(figsize=(12,3))
+plt.subplot(131)
+plt.title("Original", fontsize=14)
+plt.imshow(image.reshape(28, 28), interpolation="nearest", cmap="Greys")
+plt.subplot(132)
+plt.title("Shifted down", fontsize=14)
+plt.imshow(shifted_image_down.reshape(28, 28), interpolation="nearest", cmap="Greys")
+plt.subplot(133)
+plt.title("Shifted left", fontsize=14)
+plt.imshow(shifted_image_left.reshape(28, 28), interpolation="nearest", cmap="Greys")
+plt.show()
+
+X_train_augmented = [image for image in X_train]                    #Initial data, prior to be augmented
+y_train_augmented = [label for label in y_train]
+
+for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):                   #Loop to shift the images
+    for image, label in zip(X_train, y_train):                      #Run in every image and label data
+        X_train_augmented.append(shift_image(image, dx, dy))        #The shifted image is added to the original data collection
+        y_train_augmented.append(label)                             #A copy of the label added.
+
+X_train_augmented = np.array(X_train_augmented)                     #Convert data to array structure
+y_train_augmented = np.array(y_train_augmented)
+
+shuffle_idx = np.random.permutation(len(X_train_augmented))         #Shuffle the new augmented data randomly
+X_train_augmented = X_train_augmented[shuffle_idx]
+y_train_augmented = y_train_augmented[shuffle_idx]
+
+knn_clf = KNeighborsClassifier(**grid_search.best_params_)          #Using the best parameters,the classifier is trained with the new augmented data
+knn_clf.fit(X_train_augmented, y_train_augmented)
+y_pred = knn_clf.predict(X_test)                                    #New prediction
+accuracy_score(y_test, y_pred)                                      #Accuracy of the model
